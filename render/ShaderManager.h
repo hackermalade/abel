@@ -1,1 +1,30 @@
-#pragma once\nclass ShaderManager { public: ShaderManager() = default; void init(); void render(); };
+#pragma once
+#include <string>
+#include <unordered_map>
+#include <glad/glad.h>
+
+namespace abel {
+
+class ShaderManager {
+public:
+    ShaderManager();
+    ~ShaderManager();
+
+    void clear();
+
+    // Load shader from files, cache by name
+    GLuint loadFromFiles(const std::string& name,
+                         const std::string& vertPath,
+                         const std::string& fragPath);
+
+    // Compile shader directly from source strings (not cached)
+    GLuint compileFromSource(const char* vertSrc, const char* fragSrc);
+
+    // Get a cached program by name (returns 0 if not found)
+    GLuint getProgram(const std::string& name) const;
+
+private:
+    std::unordered_map<std::string, GLuint> programs_;
+};
+
+} // namespace abel
