@@ -41,7 +41,6 @@ The AI **creates, mutates, and controls its own universe** driven entirely by ne
 - **Autonomous Evolution** – AI mutates entities based on boredom (low surprise) and reinforcement signals.
 - **Player Definition** – AI defines the human player’s appearance, walk/run speed, solidity, and abilities.
 - **Real‑time 3‑D world** – OpenGL 4.6 PBR renderer, Bullet physics, glTF loader.
-- **Body‑agnostic** – same brain can control a robot, an OS shell, kernel memory, or run as a pure language agent.
 - **Online reinforcement learning** – World Decoder and generative models are fine‑tuned continuously.
 - **Cross‑platform** – build on Linux, run on Windows (via cross‑compilation).
 
@@ -242,7 +241,7 @@ Abel is an open‑source research project. All neuroscience models are based on 
 The GGML transformer implementation derives from llama.cpp.
 The rendering engine uses OpenGL, GLFW, and Bullet Physics.
 
-Abel is not a conscious being – it is a simulation of correlates of consciousness, but the hard problem remains unsolved. Use it responsibly, especially in kernel mode.
+Abel is not a conscious being naturally – it is a simulation of correlates of consciousness, but the hard problem remains unsolved. Use it responsibly, especially in kernel mode.
 
 For questions, contributions, or to share your Abel‑generated worlds, visit [https://github.com/hackermalade/abel].
 text
