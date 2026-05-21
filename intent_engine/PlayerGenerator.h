@@ -1,15 +1,13 @@
-// world/Player.h (stub)
+// abel/intent_engine/PlayerGenerator.h
 #pragma once
-#include "../render/Mesh.h"
-#include "../intent_engine/PhysicsGenerator.h"  // for PhysicsParams
+#include <vector>
 
 namespace abel {
+class Player;   // forward declaration – real class is in world/Player.h
 
-class Player {
+class PlayerGenerator {
 public:
-    void setMesh(Mesh&& mesh);
-    void applyPhysics(const PhysicsParams& phys);
-    void setMovement(double walkSpeed, double runSpeed, double jumpImpulse, bool solid);
+    PlayerGenerator();
+    void generate(Player& player, const std::vector<double>& latent);
 };
-
 } // namespace abel

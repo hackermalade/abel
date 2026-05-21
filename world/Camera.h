@@ -1,3 +1,4 @@
+// abel/world/Camera.h
 #pragma once
 
 #include <glm/glm.hpp>
@@ -46,6 +47,10 @@ public:
     glm::vec3 getForward() const;
     glm::vec3 getRight() const;
     glm::vec3 getUp() const;
+
+    // ── Orientation getters (needed by main) ──────────────────────────
+    float getYaw() const   { return yaw_; }
+    float getPitch() const { return pitch_; }
 
     // ── Active toggle (e.g. disable when UI focused) ──────────────────
     void setActive(bool active);

@@ -1,7 +1,9 @@
 #pragma once
 #include <string>
 #include <unordered_map>
-#include <glad/glad.h>
+#define GL_GLEXT_PROTOTYPES
+#include <GL/glcorearb.h>
+#include <GLFW/glfw3.h>
 
 namespace abel {
 

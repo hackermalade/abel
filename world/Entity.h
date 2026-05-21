@@ -4,10 +4,14 @@
 #include <glm/gtc/quaternion.hpp>
 #include <string>
 #include <vector>
+
 #include "../render/Mesh.h"
 #include "../render/Texture.h"
 #include "../intent_engine/PhysicsGenerator.h"   // for PhysicsParams
 #include "../brain/spatial/Coords.h"
+
+// Bullet forward declarations (needed for raw pointer)
+class btRigidBody;
 
 namespace abel {
 
@@ -16,7 +20,7 @@ public:
     Entity();
     ~Entity();
 
-    // Move only (no copying of unique resources)
+    // Move-only (no copy)
     Entity(Entity&& other) noexcept;
     Entity& operator=(Entity&& other) noexcept;
 
@@ -65,8 +69,8 @@ public:
     Coord3D getAbelPosition() const;
     void setAbelPosition(const Coord3D& pos);
 
-    // Cloning (for AI self‑replication)
-    Entity clone() const;
+    // Physics body access (set by PhysicsEngine)
+    btRigidBody* physics_ = nullptr;   // public, managed by engine
 
 private:
     int id_;
@@ -76,27 +80,25 @@ private:
     glm::quat rotation_;
     glm::vec3 scale_;
 
-    Mesh* mesh_;
-    Texture* texture_;
-    // Physics body pointer (if any) – omitted for now, but physics params stored
-    void* physics_;   // opaque pointer to Bullet rigid body, managed externally
+    Mesh* mesh_ = nullptr;
+    Texture* texture_ = nullptr;
 
     std::vector<double> latent_vector_;
 
-    bool visible_;
-    bool active_;
+    bool visible_ = true;
+    bool active_  = true;
 
-    // Cached physics parameters
-    float mass_;
-    float friction_;
-    float restitution_;
-    float linearDamping_;
-    float angularDamping_;
-    float gravityFactor_;
-    bool isTrigger_;
-    bool isKinematic_;
+    // Cached physics parameters (copied from last apply)
+    float mass_           = 1.0f;
+    float friction_       = 0.5f;
+    float restitution_    = 0.0f;
+    float linearDamping_  = 0.1f;
+    float angularDamping_ = 0.1f;
+    float gravityFactor_  = 1.0f;
+    bool isTrigger_       = false;
+    bool isKinematic_     = false;
 
-    mutable bool transformDirty_;
+    mutable bool transformDirty_ = true;
     mutable glm::mat4 cachedTransform_;
 };
 

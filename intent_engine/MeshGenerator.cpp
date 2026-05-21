@@ -1,7 +1,6 @@
 #include "MeshGenerator.h"
 #include "../render/Mesh.h"
 #include "../brain/Core.h"
-
 #include <vector>
 #include <cmath>
 #include <random>
@@ -9,255 +8,237 @@
 
 namespace abel {
 
-// ── Local RNG for procedural noise ──────────────────────────────────────
 static std::mt19937 rng(std::random_device{}());
 static std::uniform_real_distribution<double> uniform(-1.0, 1.0);
 
-// ── Helper: lerp ────────────────────────────────────────────────────────
-static inline double lerp(double a, double b, double t) {
-    return a + (b - a) * t;
+static inline double lerp(double a, double b, double t) { return a + (b - a) * t; }
+
+// Helper to safely read a latent dimension
+static double getVal(const std::vector<double>& latent, size_t idx, double def = 0.0) {
+    return (idx < latent.size()) ? latent[idx] : def;
 }
 
-// ── Helper: 3D vertex with normal and UV ─────────────────────────────────
-struct Vertex {
-    double x, y, z;
-    double nx, ny, nz;
-    double u, v;
-};
-
-// ── Helper: build a sphere mesh (smooth) ─────────────────────────────────
-static void buildSphere(Mesh& mesh, double radius, int segments, const std::vector<double>& latent, int& idx) {
-    int rings = segments;
-    int sectors = segments;
+// ── Build a sphere (procedural, uses Mesh methods) ─────────────────
+static void buildSphere(Mesh& mesh, double radius, int segments,
+                        const std::vector<double>& latent, int& idx) {
+    int rings = segments, sectors = segments;
+    const float pi = 3.14159265358979323846f;
     std::vector<Vertex> verts;
+    std::vector<unsigned int> indices;
     verts.reserve((rings+1)*(sectors+1));
     for (int r = 0; r <= rings; ++r) {
-        double phi = PI * (double)r / rings;
+        float phi = pi * static_cast<float>(r) / rings;
+        float sinPhi = std::sin(phi), cosPhi = std::cos(phi);
         for (int s = 0; s <= sectors; ++s) {
-            double theta = 2.0 * PI * (double)s / sectors;
-            double x = radius * sin(phi) * cos(theta);
-            double y = radius * sin(phi) * sin(theta);
-            double z = radius * cos(phi);
-            double nx = sin(phi) * cos(theta);
-            double ny = sin(phi) * sin(theta);
-            double nz = cos(phi);
-            double u = (double)s / sectors;
-            double v = (double)r / rings;
-            // optional deformation from latent
-            if (!latent.empty() && idx+1 < latent.size()) {
+            float theta = 2.0f * pi * static_cast<float>(s) / sectors;
+            float sinTheta = std::sin(theta), cosTheta = std::cos(theta);
+            float x = static_cast<float>(radius) * sinPhi * cosTheta;
+            float y = static_cast<float>(radius) * sinPhi * sinTheta;
+            float z = static_cast<float>(radius) * cosPhi;
+            if (!latent.empty() && idx+1 < static_cast<int>(latent.size())) {
                 double def = latent[idx++] * 0.2;
-                x += def * sin(phi * 3.0);
-                y += def * cos(theta * 2.0);
-                z += def * sin(theta * 2.0);
+                x += static_cast<float>(def * std::sin(phi * 3.0));
+                y += static_cast<float>(def * std::cos(theta * 2.0));
+                z += static_cast<float>(def * std::sin(theta * 2.0));
             }
-            verts.push_back({x, y, z, nx, ny, nz, u, v});
+            verts.push_back({x, y, z,
+                             sinPhi*cosTheta, sinPhi*sinTheta, cosPhi,
+                             static_cast<float>(s)/sectors,
+                             static_cast<float>(r)/rings,
+                             0.8f, 0.8f, 0.8f, 1.0f});
         }
     }
-    std::vector<unsigned int> indices;
-    for (int r = 0; r < rings; ++r) {
+    for (int r = 0; r < rings; ++r)
         for (int s = 0; s < sectors; ++s) {
-            unsigned int a = r * (sectors+1) + s;
-            unsigned int b = a + 1;
-            unsigned int c = a + (sectors+1);
-            unsigned int d = c + 1;
-            indices.push_back(a); indices.push_back(b); indices.push_back(d);
-            indices.push_back(a); indices.push_back(d); indices.push_back(c);
+            unsigned int a = r*(sectors+1)+s, b = a+1, c = a+(sectors+1), d = c+1;
+            indices.insert(indices.end(), {a,b,d,a,d,c});
         }
-    }
-    mesh.addTriangles(verts, indices);
+    mesh.addVerticesIndices(std::move(verts), std::move(indices));
 }
 
-// ── Helper: build a cylinder/cone mesh ──────────────────────────────────
-static void buildCylinder(Mesh& mesh, double radius, double height, int segments, bool capTop, bool capBottom, const std::vector<double>& latent, int& idx) {
+// ── Build a cylinder (procedural) ──────────────────────────────────
+static void buildCylinder(Mesh& mesh, double radius, double height,
+                          int segments, bool capTop, bool capBottom,
+                          const std::vector<double>& latent, int& idx) {
     int sectors = segments;
-    // body
+    const float pi = 3.14159265358979323846f;
     std::vector<Vertex> verts;
+    std::vector<unsigned int> indices;
+    float halfH = static_cast<float>(height * 0.5);
+    // body
     for (int i = 0; i <= 1; ++i) {
-        double z = i * height;
+        float z = i ? halfH : -halfH;
         for (int s = 0; s <= sectors; ++s) {
-            double theta = 2.0 * PI * (double)s / sectors;
-            double x = radius * cos(theta);
-            double y = radius * sin(theta);
-            double nx = cos(theta), ny = sin(theta), nz = 0;
-            if (!latent.empty() && idx < latent.size()) {
+            float theta = 2.0f * pi * static_cast<float>(s) / sectors;
+            float cosT = std::cos(theta), sinT = std::sin(theta);
+            float x = static_cast<float>(radius) * cosT;
+            float y = static_cast<float>(radius) * sinT;
+            if (!latent.empty() && idx < static_cast<int>(latent.size())) {
                 double def = latent[idx++] * 0.1;
-                x += def * sin(theta * 3.0);
-                y += def * cos(theta * 2.0);
+                x += static_cast<float>(def * std::sin(theta * 3.0));
+                y += static_cast<float>(def * std::cos(theta * 2.0));
             }
-            verts.push_back({x, y, z, nx, ny, nz, (double)s/sectors, (double)i});
+            verts.push_back({x, y, z,
+                             cosT, sinT, 0.0f,
+                             static_cast<float>(s)/sectors,
+                             static_cast<float>(i),
+                             0.8f, 0.8f, 0.8f, 1.0f});
         }
     }
-    std::vector<unsigned int> indices;
     for (int s = 0; s < sectors; ++s) {
-        int a = s, b = s+1, c = s + sectors + 1, d = s + sectors + 2;
-        indices.push_back(a); indices.push_back(b); indices.push_back(d);
-        indices.push_back(a); indices.push_back(d); indices.push_back(c);
+        unsigned int a = s, b = s+1, c = s+sectors+1, d = s+sectors+2;
+        indices.insert(indices.end(), {a,b,d,a,d,c});
     }
     // caps
     if (capBottom) {
-        // bottom
-        for (int s = 0; s < sectors; ++s) {
-            verts.push_back({0,0,0, 0,0,-1, 0.5,0.5}); // center
-            double theta = 2.0 * PI * (double)s / sectors;
-            double x = radius * cos(theta), y = radius * sin(theta);
-            verts.push_back({x,y,0, 0,0,-1, (double)s/sectors,0});
+        unsigned int baseIdx = static_cast<unsigned int>(verts.size());
+        verts.push_back({0,0,-halfH, 0,0,-1, 0.5f,0.5f, 0.8f,0.8f,0.8f,1.0f});
+        for (int s = 0; s <= sectors; ++s) {
+            float theta = 2.0f * pi * static_cast<float>(s) / sectors;
+            float x = static_cast<float>(radius) * std::cos(theta);
+            float y = static_cast<float>(radius) * std::sin(theta);
+            verts.push_back({x,y,-halfH, 0,0,-1,
+                             (std::cos(theta)+1.0f)*0.5f,
+                             (std::sin(theta)+1.0f)*0.5f,
+                             0.8f,0.8f,0.8f,1.0f});
         }
-        int base = verts.size() - 2*sectors;
-        for (int s = 0; s < sectors; ++s) {
-            indices.push_back(base);
-            indices.push_back(base + 2*s + 1);
-            indices.push_back(base + 2*((s+1)%sectors) + 1);
-        }
+        for (int s = 0; s < sectors; ++s)
+            indices.insert(indices.end(), {baseIdx, baseIdx+s+1, baseIdx+s+2});
     }
     if (capTop) {
-        // top similar
-        for (int s = 0; s < sectors; ++s) {
-            verts.push_back({0,0,height, 0,0,1, 0.5,0.5});
-            double theta = 2.0 * PI * (double)s / sectors;
-            double x = radius * cos(theta), y = radius * sin(theta);
-            verts.push_back({x,y,height, 0,0,1, (double)s/sectors,1});
+        unsigned int baseIdx = static_cast<unsigned int>(verts.size());
+        verts.push_back({0,0,halfH, 0,0,1, 0.5f,0.5f, 0.8f,0.8f,0.8f,1.0f});
+        for (int s = 0; s <= sectors; ++s) {
+            float theta = 2.0f * pi * static_cast<float>(s) / sectors;
+            float x = static_cast<float>(radius) * std::cos(theta);
+            float y = static_cast<float>(radius) * std::sin(theta);
+            verts.push_back({x,y,halfH, 0,0,1,
+                             (std::cos(theta)+1.0f)*0.5f,
+                             (std::sin(theta)+1.0f)*0.5f,
+                             0.8f,0.8f,0.8f,1.0f});
         }
-        int base = verts.size() - 2*sectors;
-        for (int s = 0; s < sectors; ++s) {
-            indices.push_back(base);
-            indices.push_back(base + 2*((s+1)%sectors) + 1);
-            indices.push_back(base + 2*s + 1);
-        }
+        for (int s = 0; s < sectors; ++s)
+            indices.insert(indices.end(), {baseIdx, baseIdx+s+2, baseIdx+s+1});
     }
-    mesh.addTriangles(verts, indices);
+    mesh.addVerticesIndices(std::move(verts), std::move(indices));
 }
 
-// ── Constructor ─────────────────────────────────────────────────────────
+// ── Constructor ────────────────────────────────────────────────────
 MeshGenerator::MeshGenerator() {}
 
-// ── Generate mesh from latent vector ────────────────────────────────────
+// ── Generate mesh from latent vector ───────────────────────────────
 Mesh MeshGenerator::generate(const std::vector<double>& latent) {
     Mesh mesh;
-
-    // Default latent size: 128
     if (latent.empty()) {
-        // create a default sphere
-        buildSphere(mesh, 1.0, 16, latent, int());
+        int dummyIdx = 0;
+        buildSphere(mesh, 1.0, 16, latent, dummyIdx);
         return mesh;
     }
 
-    // The first dimension determines shape type (0..1 mapped to categories)
     double shape_selector = latent[0];
-    int idx = 1; // current position in latent vector
+    int idx = 1;
+    int shape_type = static_cast<int>(shape_selector * 5.0);
+    shape_type = std::clamp(shape_type, 0, 4);
 
-    // Map to shape categories: 0.0‑0.2 -> sphere, 0.2‑0.4 -> cylinder, 0.4‑0.6 -> star, 0.6‑0.8 -> torus, 0.8‑1.0 -> custom/complex
-    int shape_type = (int)(shape_selector * 5.0);
-    if (shape_type < 0) shape_type = 0;
-    if (shape_type > 4) shape_type = 4;
-
-    // Use further latent dimensions for parameters
-    // Ensure we have enough dimensions, otherwise pad with random
-    auto getVal = [&](int pos, double def = 0.0) -> double {
-        return (pos < latent.size()) ? latent[pos] : uniform(rng)*0.5;
+    auto getValLocal = [&](int pos, double def = 0.0) -> double {
+        return (pos < static_cast<int>(latent.size())) ? latent[pos] : uniform(rng) * 0.5;
     };
 
     switch (shape_type) {
-        case 0: { // Sphere (or elongated spheroid)
-            double radius = 0.5 + getVal(idx++) * 2.0; // 0.5‑2.5
-            int segments = 8 + (int)(std::abs(getVal(idx++)) * 24); // 8‑32
+        case 0: {
+            double radius = 0.5 + getValLocal(idx++) * 2.0;
+            int segments = 8 + static_cast<int>(std::abs(getValLocal(idx++)) * 24);
             buildSphere(mesh, radius, segments, latent, idx);
             break;
         }
-        case 1: { // Cylinder / limb
-            double radius = 0.2 + getVal(idx++) * 1.0;
-            double height = 0.5 + getVal(idx++) * 2.0;
-            int segments = 8 + (int)(std::abs(getVal(idx++)) * 16);
+        case 1: {
+            double radius = 0.2 + getValLocal(idx++) * 1.0;
+            double height = 0.5 + getValLocal(idx++) * 2.0;
+            int segments = 8 + static_cast<int>(std::abs(getValLocal(idx++)) * 16);
             buildCylinder(mesh, radius, height, segments, true, true, latent, idx);
             break;
         }
-        case 2: { // Star shape: multiple cylinders as spikes from a sphere
-            double base_radius = 0.3 + getVal(idx++) * 0.8;
-            int num_spikes = 3 + (int)(std::abs(getVal(idx++)) * 10); // 3‑13
-            double spike_len = 0.5 + getVal(idx++) * 2.0;
-            double spike_radius = 0.05 + getVal(idx++) * 0.2;
-            // central sphere
+        case 2: {
+            double base_radius = 0.3 + getValLocal(idx++) * 0.8;
+            int num_spikes = 3 + static_cast<int>(std::abs(getValLocal(idx++)) * 10);
+            double spike_len = 0.5 + getValLocal(idx++) * 2.0;
+            double spike_radius = 0.05 + getValLocal(idx++) * 0.2;
             buildSphere(mesh, base_radius, 12, latent, idx);
-            // spikes as cylinders
             for (int i = 0; i < num_spikes; ++i) {
-                double angle = 2.0 * PI * i / num_spikes + getVal(idx++) * 0.5;
-                double tilt = (getVal(idx++) * 0.5) * PI;
-                double cx = base_radius * cos(angle) * cos(tilt);
-                double cy = base_radius * sin(angle) * cos(tilt);
-                double cz = base_radius * sin(tilt);
-                // create a cylinder pointing along spike direction, then translate
+                double angle = 2.0 * PI * i / num_spikes + getValLocal(idx++) * 0.5;
+                double tilt = (getValLocal(idx++) * 0.5) * PI;
+                double cx = base_radius * std::cos(angle) * std::cos(tilt);
+                double cy = base_radius * std::sin(angle) * std::cos(tilt);
+                double cz = base_radius * std::sin(tilt);
                 Mesh spike;
                 buildCylinder(spike, spike_radius, spike_len, 6, false, false, latent, idx);
-                spike.translate(cx, cy, cz); // need transform method in Mesh
+                spike.translate(static_cast<float>(cx), static_cast<float>(cy), static_cast<float>(cz));
                 mesh.merge(spike);
             }
             break;
         }
-        case 3: { // Torus
-            double major_radius = 0.5 + getVal(idx++) * 1.5;
-            double minor_radius = 0.1 + getVal(idx++) * 0.4;
-            int major_segments = 12 + (int)(std::abs(getVal(idx++)) * 16);
-            int minor_segments = 6 + (int)(std::abs(getVal(idx++)) * 8);
-            // procedural torus
+        case 3: {
+            double major_radius = 0.5 + getValLocal(idx++) * 1.5;
+            double minor_radius = 0.1 + getValLocal(idx++) * 0.4;
+            int major_segments = 12 + static_cast<int>(std::abs(getValLocal(idx++)) * 16);
+            int minor_segments = 6 + static_cast<int>(std::abs(getValLocal(idx++)) * 8);
             std::vector<Vertex> verts;
             for (int i = 0; i <= major_segments; ++i) {
                 double theta = 2.0 * PI * i / major_segments;
-                double ct = cos(theta), st = sin(theta);
+                double ct = std::cos(theta), st = std::sin(theta);
                 for (int j = 0; j <= minor_segments; ++j) {
                     double phi = 2.0 * PI * j / minor_segments;
-                    double cp = cos(phi), sp = sin(phi);
-                    double x = (major_radius + minor_radius * cp) * ct;
-                    double y = (major_radius + minor_radius * cp) * st;
-                    double z = minor_radius * sp;
-                    // deformation
-                    if (idx < latent.size()) {
+                    double cp = std::cos(phi), sp = std::sin(phi);
+                    float x = static_cast<float>((major_radius + minor_radius * cp) * ct);
+                    float y = static_cast<float>((major_radius + minor_radius * cp) * st);
+                    float z = static_cast<float>(minor_radius * sp);
+                    if (idx < static_cast<int>(latent.size())) {
                         double def = latent[idx++] * 0.1;
-                        x += def * sin(theta * 3.0);
-                        y += def * cos(phi * 2.0);
-                        z += def * cos(theta);
+                        x += static_cast<float>(def * std::sin(theta * 3.0));
+                        y += static_cast<float>(def * std::cos(phi * 2.0));
+                        z += static_cast<float>(def * std::cos(theta));
                     }
-                    verts.push_back({x, y, z, x-major_radius*ct, y-major_radius*st, z, (double)i/major_segments, (double)j/minor_segments});
+                    verts.push_back({x, y, z,
+                                     static_cast<float>(x - major_radius*ct),
+                                     static_cast<float>(y - major_radius*st),
+                                     z,
+                                     static_cast<float>(i)/major_segments,
+                                     static_cast<float>(j)/minor_segments,
+                                     0.8f,0.8f,0.8f,1.0f});
                 }
             }
-            std::vector<unsigned int> indices;
-            for (int i = 0; i < major_segments; ++i) {
+            std::vector<unsigned int> inds;
+            for (int i = 0; i < major_segments; ++i)
                 for (int j = 0; j < minor_segments; ++j) {
-                    int a = i * (minor_segments+1) + j;
-                    int b = a + 1;
-                    int c = a + (minor_segments+1);
-                    int d = c + 1;
-                    indices.push_back(a); indices.push_back(b); indices.push_back(d);
-                    indices.push_back(a); indices.push_back(d); indices.push_back(c);
+                    unsigned int a = i*(minor_segments+1)+j, b = a+1, c = a+(minor_segments+1), d = c+1;
+                    inds.insert(inds.end(), {a,b,d,a,d,c});
                 }
-            }
-            mesh.addTriangles(verts, indices);
+            mesh.addVerticesIndices(std::move(verts), std::move(inds));
             break;
         }
-        case 4: { // Complex: animal/creature by combining primitives
-            // Use latent dimensions to build a body (sphere), legs (cylinders), head, tail
+        case 4: {
             Mesh body;
-            buildSphere(body, 0.4 + getVal(idx++)*0.6, 12, latent, idx);
-            body.translate(0, 0, 0.5);
+            buildSphere(body, 0.4 + getValLocal(idx++)*0.6, 12, latent, idx);
+            body.translate(0, 0, 0.5f);
             mesh.merge(body);
-
-            int num_legs = 2 + (int)(std::abs(getVal(idx++)) * 4); // 2‑6
+            int num_legs = 2 + static_cast<int>(std::abs(getValLocal(idx++)) * 4);
             for (int i = 0; i < num_legs; ++i) {
-                double angle = 2.0 * PI * i / num_legs + getVal(idx++) * 0.3;
-                double len = 0.5 + getVal(idx++) * 1.0;
+                double angle = 2.0 * PI * i / num_legs + getValLocal(idx++) * 0.3;
+                double len = 0.5 + getValLocal(idx++) * 1.0;
                 Mesh leg;
                 buildCylinder(leg, 0.05, len, 6, true, false, latent, idx);
-                leg.translate(0.2*cos(angle), 0.2*sin(angle), -0.3);
+                leg.translate(static_cast<float>(0.2*std::cos(angle)),
+                              static_cast<float>(0.2*std::sin(angle)), -0.3f);
                 mesh.merge(leg);
             }
-            // head
             Mesh head;
-            buildSphere(head, 0.2 + getVal(idx++)*0.2, 10, latent, idx);
-            head.translate(0, 0, 1.0);
+            buildSphere(head, 0.2 + getValLocal(idx++)*0.2, 10, latent, idx);
+            head.translate(0, 0, 1.0f);
             mesh.merge(head);
-            // tail
-            if (getVal(idx++) > 0.3) {
+            if (getValLocal(idx++) > 0.3) {
                 Mesh tail;
                 buildCylinder(tail, 0.04, 0.7, 6, false, false, latent, idx);
-                tail.translate(0, 0, -0.2);
+                tail.translate(0, 0, -0.2f);
                 mesh.merge(tail);
             }
             break;
@@ -265,10 +246,10 @@ Mesh MeshGenerator::generate(const std::vector<double>& latent) {
         default: break;
     }
 
-    // Apply overall color from remaining latent dimensions (embed into mesh material)
-    double r = 0.5 + 0.5 * getVal(idx++);
-    double g = 0.5 + 0.5 * getVal(idx++);
-    double b = 0.5 + 0.5 * getVal(idx++);
+    // Set base color from remaining latent dimensions
+    float r = 0.5f + 0.5f * static_cast<float>(getValLocal(idx++, 0.0));
+    float g = 0.5f + 0.5f * static_cast<float>(getValLocal(idx++, 0.0));
+    float b = 0.5f + 0.5f * static_cast<float>(getValLocal(idx++, 0.0));
     mesh.setBaseColor(r, g, b);
 
     return mesh;

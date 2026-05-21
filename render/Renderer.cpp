@@ -5,9 +5,9 @@
 #include "../world/Camera.h"
 #include "Mesh.h"
 #include "Texture.h"
-#include "ShaderManager.h"   // optional, we inline shader compilation instead
 
-#include <glad/glad.h>        // OpenGL loader
+#define GL_GLEXT_PROTOTYPES
+#include <GL/glcorearb.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -16,11 +16,11 @@
 #include <iostream>
 #include <vector>
 #include <unordered_map>
-#include <string>
+#include <cstring>
 
-namespace abel {
-
-// ── PBR Shader sources ───────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+//  PBR Shader sources
+// ---------------------------------------------------------------------------
 static const char* pbrVertSrc = R"(
 #version 460 core
 layout(location = 0) in vec3 aPos;
@@ -41,8 +41,6 @@ void main() {
     vec4 worldPos = uModel * vec4(aPos, 1.0);
     WorldPos = worldPos.xyz;
     gl_Position = uViewProj * worldPos;
-
-    // Transform normal to world space (no non‑uniform scale)
     WorldNormal = normalize(mat3(uNormalMat) * aNormal);
     TexCoord = aTexCoord;
     Color = aColor;
@@ -59,7 +57,7 @@ in vec4 Color;
 out vec4 FragColor;
 
 uniform vec3 uCamPos;
-uniform vec3 uLightDir;     // sun direction
+uniform vec3 uLightDir;
 uniform vec3 uLightColor;
 uniform float uAmbient;
 uniform sampler2D uAlbedoTex;
@@ -89,10 +87,8 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
 }
 
 void main() {
-    // Base colour from vertex colour or texture
     vec3 albedo = uHasTexture ? texture(uAlbedoTex, TexCoord).rgb : Color.rgb;
 
-    // PBR defaults
     float metallic = 0.0;
     float roughness = 0.5;
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
@@ -102,7 +98,6 @@ void main() {
     vec3 L = normalize(-uLightDir);
     vec3 H = normalize(V + L);
 
-    // Cook‑Torrance BRDF
     float NDF = DistributionGGX(N, H, roughness);
     float G = GeometrySmith(N, V, L, roughness);
     vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
@@ -119,7 +114,9 @@ void main() {
 }
 )";
 
-// ── Shader compilation helper ────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+//  Shader compilation helpers
+// ---------------------------------------------------------------------------
 static GLuint compileShader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
     glShaderSource(shader, 1, &source, nullptr);
@@ -160,15 +157,26 @@ static GLuint createProgram(const char* vertSrc, const char* fragSrc) {
     return program;
 }
 
-// ── Renderer implementation ──────────────────────────────────────────────
+namespace abel {
+
+// ---------------------------------------------------------------------------
+//  GPU buffer for a mesh
+// ---------------------------------------------------------------------------
 struct MeshGPU {
-    GLuint vao, vbo, ebo;
-    int indexCount;
-    bool hasTexture;
-    GLuint textureID;
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    GLuint ebo = 0;
+    int indexCount = 0;
+    bool hasTexture = false;
+    GLuint textureID = 0;
 };
 
-Renderer::Renderer() : window_(nullptr), pbrProgram_(0), lightDir_(-0.2f, -0.8f, -0.5f), lightColor_(1.0f, 0.95f, 0.85f), ambient_(0.15f) {}
+// ---------------------------------------------------------------------------
+//  Renderer
+// ---------------------------------------------------------------------------
+Renderer::Renderer()
+    : window_(nullptr), pbrProgram_(0)
+{}
 
 Renderer::~Renderer() {
     shutdown();
@@ -186,20 +194,18 @@ bool Renderer::init() {
 
     window_ = glfwCreateWindow(1280, 720, "Abel", nullptr, nullptr);
     if (!window_) {
+        std::cerr << "Window creation failed" << std::endl;
         glfwTerminate();
         return false;
     }
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(1);
 
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cerr << "GLAD init failed" << std::endl;
-        return false;
-    }
+    // No GLAD – we use glcorearb.h + GLFW
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
-    glClearColor(0.1f, 0.15f, 0.25f, 1.0f);   // twilight sky
+    glClearColor(0.1f, 0.15f, 0.25f, 1.0f);
 
     // Compile PBR shader
     pbrProgram_ = createProgram(pbrVertSrc, pbrFragSrc);
@@ -207,26 +213,26 @@ bool Renderer::init() {
 
     // Retrieve uniform locations
     glUseProgram(pbrProgram_);
-    loc_uModel_       = glGetUniformLocation(pbrProgram_, "uModel");
-    loc_uViewProj_    = glGetUniformLocation(pbrProgram_, "uViewProj");
-    loc_uNormalMat_   = glGetUniformLocation(pbrProgram_, "uNormalMat");
-    loc_uCamPos_      = glGetUniformLocation(pbrProgram_, "uCamPos");
-    loc_uLightDir_    = glGetUniformLocation(pbrProgram_, "uLightDir");
-    loc_uLightColor_  = glGetUniformLocation(pbrProgram_, "uLightColor");
-    loc_uAmbient_     = glGetUniformLocation(pbrProgram_, "uAmbient");
-    loc_uAlbedoTex_   = glGetUniformLocation(pbrProgram_, "uAlbedoTex");
-    loc_uHasTexture_  = glGetUniformLocation(pbrProgram_, "uHasTexture");
+    loc_uModel_      = glGetUniformLocation(pbrProgram_, "uModel");
+    loc_uViewProj_   = glGetUniformLocation(pbrProgram_, "uViewProj");
+    loc_uNormalMat_  = glGetUniformLocation(pbrProgram_, "uNormalMat");
+    loc_uCamPos_     = glGetUniformLocation(pbrProgram_, "uCamPos");
+    loc_uLightDir_   = glGetUniformLocation(pbrProgram_, "uLightDir");
+    loc_uLightColor_ = glGetUniformLocation(pbrProgram_, "uLightColor");
+    loc_uAmbient_    = glGetUniformLocation(pbrProgram_, "uAmbient");
+    loc_uAlbedoTex_  = glGetUniformLocation(pbrProgram_, "uAlbedoTex");
+    loc_uHasTexture_ = glGetUniformLocation(pbrProgram_, "uHasTexture");
     glUseProgram(0);
 
     return true;
 }
-
 void Renderer::shutdown() {
     // Delete all cached GPU buffers
     for (auto& [meshPtr, gpu] : gpuCache_) {
         glDeleteVertexArrays(1, &gpu.vao);
         glDeleteBuffers(1, &gpu.vbo);
         glDeleteBuffers(1, &gpu.ebo);
+        if (gpu.textureID) glDeleteTextures(1, &gpu.textureID);
     }
     gpuCache_.clear();
 
@@ -243,33 +249,28 @@ void Renderer::draw(const World& world, const Camera& camera) {
     glm::mat4 viewProj = camera.getProjection() * camera.getView();
 
     glUseProgram(pbrProgram_);
-    // Global lighting uniforms (constant for whole frame)
-    glUniform3fv(loc_uLightDir_, 1, &lightDir_[0]);
-    glUniform3fv(loc_uLightColor_, 1, &lightColor_[0]);
+    // Global lighting
+    glUniform3fv(loc_uLightDir_, 1, glm::value_ptr(lightDir_));
+    glUniform3fv(loc_uLightColor_, 1, glm::value_ptr(lightColor_));
     glUniform1f(loc_uAmbient_, ambient_);
 
-    for (auto* entity : world.getAllEntities()) {
-        if (!entity) continue;
+    for (const auto& entityPtr : world.getAllEntities()) {
+        const Entity* entity = entityPtr.get();
+        if (!entity || !entity->isVisible()) continue;
 
-        Mesh* mesh = entity->getMesh();
+        const Mesh* mesh = entity->getMesh();
         if (!mesh) continue;
 
-        // Retrieve or create GPU representation
         MeshGPU& gpu = getOrCreateGPU(*mesh);
 
-        // Entity transform
-        glm::mat4 model = entity->getTransform();   // from Entity class
+        glm::mat4 model = entity->getTransform();
         glm::mat4 normalMat = glm::transpose(glm::inverse(model));
-
-        // Camera position for specular
-        glm::vec3 camPos = camera.getPosition();
 
         glUniformMatrix4fv(loc_uModel_, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(loc_uViewProj_, 1, GL_FALSE, glm::value_ptr(viewProj));
         glUniformMatrix4fv(loc_uNormalMat_, 1, GL_FALSE, glm::value_ptr(normalMat));
-        glUniform3fv(loc_uCamPos_, 1, glm::value_ptr(camPos));
+        glUniform3fv(loc_uCamPos_, 1, glm::value_ptr(camera.getPosition()));
 
-        // Texture binding
         if (gpu.hasTexture) {
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, gpu.textureID);
@@ -283,6 +284,35 @@ void Renderer::draw(const World& world, const Camera& camera) {
         glDrawElements(GL_TRIANGLES, gpu.indexCount, GL_UNSIGNED_INT, nullptr);
     }
 
+    // Optionally draw the player
+    const Player* player = world.getPlayer();
+    if (player) {
+        const Mesh* playerMesh = player->getMesh();
+        if (playerMesh) {
+            MeshGPU& gpu = getOrCreateGPU(*playerMesh);
+
+            glm::mat4 model = player->getTransform();
+            glm::mat4 normalMat = glm::transpose(glm::inverse(model));
+
+            glUniformMatrix4fv(loc_uModel_, 1, GL_FALSE, glm::value_ptr(model));
+            glUniformMatrix4fv(loc_uViewProj_, 1, GL_FALSE, glm::value_ptr(viewProj));
+            glUniformMatrix4fv(loc_uNormalMat_, 1, GL_FALSE, glm::value_ptr(normalMat));
+            glUniform3fv(loc_uCamPos_, 1, glm::value_ptr(camera.getPosition()));
+
+            if (gpu.hasTexture) {
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, gpu.textureID);
+                glUniform1i(loc_uAlbedoTex_, 0);
+                glUniform1i(loc_uHasTexture_, GL_TRUE);
+            } else {
+                glUniform1i(loc_uHasTexture_, GL_FALSE);
+            }
+
+            glBindVertexArray(gpu.vao);
+            glDrawElements(GL_TRIANGLES, gpu.indexCount, GL_UNSIGNED_INT, nullptr);
+        }
+    }
+
     glBindVertexArray(0);
     glUseProgram(0);
     glfwSwapBuffers(window_);
@@ -290,7 +320,6 @@ void Renderer::draw(const World& world, const Camera& camera) {
 }
 
 MeshGPU& Renderer::getOrCreateGPU(const Mesh& mesh) {
-    // Use address of Mesh as key (works because Mesh is not copied during frame)
     auto it = gpuCache_.find(&mesh);
     if (it != gpuCache_.end()) return it->second;
 
@@ -313,16 +342,12 @@ MeshGPU& Renderer::getOrCreateGPU(const Mesh& mesh) {
                  mesh.getIndices().data(), GL_STATIC_DRAW);
 
     // Vertex layout
-    // position
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
     glEnableVertexAttribArray(0);
-    // normal
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, nx));
     glEnableVertexAttribArray(1);
-    // texcoord
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, u));
     glEnableVertexAttribArray(2);
-    // color
     glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, r));
     glEnableVertexAttribArray(3);
 

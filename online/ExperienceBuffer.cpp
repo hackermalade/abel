@@ -1,32 +1,47 @@
-#pragma once
-
-#include "../brain/Core.h"   // for SensoryVector, MotorVector
-#include <vector>
+#include "ExperienceBuffer.h"
+#include <algorithm>
+#include <random>
 
 namespace abel {
 
-struct Experience {
-    SensoryVector sensory;
-    MotorVector   motor;
-    double        reward = 0.0;
-};
+static std::mt19937 rng(std::random_device{}());
 
-class ExperienceBuffer {
-public:
-    explicit ExperienceBuffer(int capacity = 10000);
+ExperienceBuffer::ExperienceBuffer(int capacity)
+    : capacity_(capacity > 0 ? capacity : 10000),
+      nextIdx_(0), size_(0)
+{
+    buffer_.resize(capacity_);
+}
 
-    void add(const SensoryVector& sensory, const MotorVector& motor, double reward);
-    bool isFull() const;
-    int  size() const;
+void ExperienceBuffer::add(const SensoryVector& sensory,
+                           const MotorVector& motor,
+                           double reward) {
+    Experience exp;
+    exp.sensory = sensory;
+    exp.motor   = motor;
+    exp.reward  = reward;
+    buffer_[nextIdx_] = std::move(exp);
+    nextIdx_ = (nextIdx_ + 1) % capacity_;
+    if (size_ < capacity_) ++size_;
+}
 
-    std::vector<Experience> getBatch(int batchSize) const;
-    void clear();
+bool ExperienceBuffer::isFull() const { return size_ >= capacity_; }
+int ExperienceBuffer::size() const { return size_; }
 
-private:
-    int capacity_;
-    std::vector<Experience> buffer_;
-    int nextIdx_;
-    int size_;
-};
+std::vector<Experience> ExperienceBuffer::getBatch(int batchSize) const {
+    if (batchSize <= 0 || size_ == 0) return {};
+    batchSize = std::min(batchSize, size_);
+    std::vector<Experience> batch;
+    batch.reserve(batchSize);
+    std::uniform_int_distribution<int> dist(0, size_ - 1);
+    for (int i = 0; i < batchSize; ++i)
+        batch.push_back(buffer_[dist(rng)]);
+    return batch;
+}
+
+void ExperienceBuffer::clear() {
+    nextIdx_ = 0;
+    size_ = 0;
+}
 
 } // namespace abel

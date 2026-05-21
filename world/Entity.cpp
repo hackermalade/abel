@@ -1,3 +1,4 @@
+#define GLM_ENABLE_EXPERIMENTAL
 #include "Entity.h"
 #include "../render/Mesh.h"
 #include "../render/Texture.h"
@@ -15,15 +16,13 @@
 
 namespace abel {
 
-// ── Static ID counter ────────────────────────────────────────────────────
 static int nextId = 0;
 
-// ── Constructor ──────────────────────────────────────────────────────────
 Entity::Entity()
     : id_(nextId++),
       name_("entity_" + std::to_string(id_)),
       position_(0.0f, 0.0f, 0.0f),
-      rotation_(1.0f, 0.0f, 0.0f, 0.0f),   // identity quaternion
+      rotation_(1.0f, 0.0f, 0.0f, 0.0f),
       scale_(1.0f, 1.0f, 1.0f),
       mesh_(nullptr),
       texture_(nullptr),
@@ -43,14 +42,12 @@ Entity::Entity()
 {
 }
 
-// ── Destructor ───────────────────────────────────────────────────────────
 Entity::~Entity() {
     delete mesh_;
     delete texture_;
-    delete physics_;
+    // physics_ is owned by PhysicsEngine – do NOT delete it
 }
 
-// ── Copy disabled, move enabled ──────────────────────────────────────────
 Entity::Entity(Entity&& other) noexcept
     : id_(other.id_),
       name_(std::move(other.name_)),
@@ -82,7 +79,8 @@ Entity& Entity::operator=(Entity&& other) noexcept {
     if (this != &other) {
         delete mesh_; mesh_ = other.mesh_; other.mesh_ = nullptr;
         delete texture_; texture_ = other.texture_; other.texture_ = nullptr;
-        delete physics_; physics_ = other.physics_; other.physics_ = nullptr;
+        // physics_ is owned by engine, just copy pointer
+        physics_ = other.physics_; other.physics_ = nullptr;
 
         id_ = other.id_;
         name_ = std::move(other.name_);
@@ -105,39 +103,31 @@ Entity& Entity::operator=(Entity&& other) noexcept {
     return *this;
 }
 
-// ── ID and name ──────────────────────────────────────────────────────────
 int Entity::getId() const { return id_; }
 const std::string& Entity::getName() const { return name_; }
 void Entity::setName(const std::string& name) { name_ = name; }
 
-// ── Mesh ─────────────────────────────────────────────────────────────────
 void Entity::setMesh(Mesh&& mesh) {
     delete mesh_;
     mesh_ = new Mesh(std::move(mesh));
 }
-
 const Mesh* Entity::getMesh() const { return mesh_; }
 Mesh* Entity::getMesh() { return mesh_; }
 
-// ── Texture ──────────────────────────────────────────────────────────────
 void Entity::setTexture(Texture&& tex) {
     delete texture_;
     texture_ = new Texture(std::move(tex));
 }
-
 const Texture* Entity::getTexture() const { return texture_; }
 Texture* Entity::getTexture() { return texture_; }
 
-// ── Latent vector ────────────────────────────────────────────────────────
 void Entity::setLatentVector(const std::vector<double>& latent) {
     latent_vector_ = latent;
 }
-
 const std::vector<double>& Entity::getLatentVector() const {
     return latent_vector_;
 }
 
-// ── Physics params ───────────────────────────────────────────────────────
 void Entity::applyPhysicsParams(const PhysicsParams& p) {
     mass_           = p.mass;
     friction_       = p.friction;
@@ -162,7 +152,6 @@ PhysicsParams Entity::getPhysicsParams() const {
     return p;
 }
 
-// ── Transform ────────────────────────────────────────────────────────────
 glm::mat4 Entity::getTransform() const {
     if (transformDirty_) {
         glm::mat4 trans = glm::translate(glm::mat4(1.0f), position_);
@@ -174,20 +163,9 @@ glm::mat4 Entity::getTransform() const {
     return cachedTransform_;
 }
 
-void Entity::setPosition(const glm::vec3& pos) {
-    position_ = pos;
-    transformDirty_ = true;
-}
-
-void Entity::setRotation(const glm::quat& rot) {
-    rotation_ = rot;
-    transformDirty_ = true;
-}
-
-void Entity::setScale(const glm::vec3& scl) {
-    scale_ = scl;
-    transformDirty_ = true;
-}
+void Entity::setPosition(const glm::vec3& pos) { position_ = pos; transformDirty_ = true; }
+void Entity::setRotation(const glm::quat& rot) { rotation_ = rot; transformDirty_ = true; }
+void Entity::setScale(const glm::vec3& scl)    { scale_ = scl;    transformDirty_ = true; }
 
 glm::vec3 Entity::getPosition() const { return position_; }
 glm::quat Entity::getRotation() const { return rotation_; }
@@ -203,13 +181,11 @@ void Entity::rotate(float angle, const glm::vec3& axis) {
     transformDirty_ = true;
 }
 
-// ── Visibility / activity ────────────────────────────────────────────────
 void Entity::setVisible(bool v) { visible_ = v; }
 bool Entity::isVisible() const { return visible_; }
-void Entity::setActive(bool a) { active_ = a; }
-bool Entity::isActive() const { return active_; }
+void Entity::setActive(bool a)  { active_ = a; }
+bool Entity::isActive() const  { return active_; }
 
-// ── Abelian coordinate helpers ───────────────────────────────────────────
 Coord3D Entity::getAbelPosition() const {
     return Coord3D(position_.x, position_.y, position_.z);
 }
@@ -217,29 +193,6 @@ Coord3D Entity::getAbelPosition() const {
 void Entity::setAbelPosition(const Coord3D& pos) {
     position_ = glm::vec3(pos.x, pos.y, pos.z);
     transformDirty_ = true;
-}
-
-// ── Clone ────────────────────────────────────────────────────────────────
-Entity Entity::clone() const {
-    Entity copy;
-    copy.name_ = name_ + "_clone";
-    copy.position_ = position_;
-    copy.rotation_ = rotation_;
-    copy.scale_ = scale_;
-    if (mesh_)   copy.mesh_   = new Mesh(*mesh_);
-    if (texture_) copy.texture_ = new Texture(*texture_);
-    copy.latent_vector_ = latent_vector_;
-    copy.visible_ = visible_;
-    copy.active_ = active_;
-    copy.mass_ = mass_;
-    copy.friction_ = friction_;
-    copy.restitution_ = restitution_;
-    copy.linearDamping_ = linearDamping_;
-    copy.angularDamping_ = angularDamping_;
-    copy.gravityFactor_ = gravityFactor_;
-    copy.isTrigger_ = isTrigger_;
-    copy.isKinematic_ = isKinematic_;
-    return copy;
 }
 
 } // namespace abel

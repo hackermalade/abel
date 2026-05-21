@@ -1,0 +1,3 @@
+/home/hackerma/abel/build/CMakeFiles/abel.dir
+/home/hackerma/abel/build/CMakeFiles/edit_cache.dir
+/home/hackerma/abel/build/CMakeFiles/rebuild_cache.dir
